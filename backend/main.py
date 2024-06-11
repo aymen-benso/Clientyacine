@@ -4,7 +4,38 @@ import pandas as pd
 import numpy as np
 import os
 import shutil
+from fastapi.middleware.cors import CORSMiddleware
+import json
+import json
+import numpy as np
 
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
+
+# Your codes .... 
+
+
+app = FastAPI()
+
+# Set up CORS
+origins = [
+    "*",  # Replace with your actual frontend origin
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def generate_report(df):
     columns = df.columns
@@ -13,7 +44,7 @@ def generate_report(df):
         "descriptiveStatistics": {},
         "missingValues": {},
         "duplicateCount": 0,
-        "numericDistributions": {}
+
     }
 
     # Data Types
@@ -24,17 +55,16 @@ def generate_report(df):
     numeric_columns = df.select_dtypes(include=[np.number]).columns
     for column in numeric_columns:
         report["descriptiveStatistics"][column] = df[column].describe().to_dict()
-        report["numericDistributions"][column] = df[column].tolist()
 
     # Missing Values
     report["missingValues"] = df.isnull().sum().to_dict()
 
     # Duplicates
     report["duplicateCount"] = df.duplicated().sum()
+     
+    print(json.dumps(report, cls=NpEncoder))
 
-    return report
-
-app = FastAPI()
+    return json.dumps(report, cls=NpEncoder)
 
 @app.post("/data-profiling")
 async def handle_data_profiling(file: UploadFile = File(...)):
@@ -49,10 +79,8 @@ async def handle_data_profiling(file: UploadFile = File(...)):
 
     # Generate the report
     report = generate_report(df)
-
-    return JSONResponse(content=report)
-
-
+    
+    return JSONResponse(content=report, status_code=200)    
 
 if __name__ == "__main__":
     import uvicorn

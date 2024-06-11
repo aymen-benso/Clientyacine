@@ -1,87 +1,108 @@
+"use client";
+
 import React, { useState } from 'react';
-import { Chart } from 'react-chartjs-2';
 
-type DataQualityReport = {
-  dataTypes: Record<string, string>;
-  descriptiveStatistics: Record<string, any>;
-  missingValues: Record<string, number>;
+interface DescriptiveStatistics {
+  count: number;
+  mean: number;
+  std: number;
+  min: number;
+  '25%': number;
+  '50%': number;
+  '75%': number;
+  max: number;
+}
+
+
+
+interface MissingValues {
+  [key: string]: number;
+}
+
+interface DataProfiling {
+  dataTypes: {
+    [key: string]: string;
+  };
+  descriptiveStatistics: {
+    [key: string]: DescriptiveStatistics;
+  };
+  missingValues: MissingValues;
   duplicateCount: number;
-  numericDistributions: Record<string, number[]>;
-};
 
-const Home: React.FC = () => {
-  const [report, setReport] = useState<DataQualityReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
+}
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+const DataProfiling: React.FC = () => {
+  const [file, setFile] = useState<File | null>(null);
+  const [report, setReport] = useState<DataProfiling | null>(null);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      setFile(event.target.files[0]);
+    }
+  };
+
+  const handleUpload = async () => {
     if (!file) return;
 
     const formData = new FormData();
     formData.append('file', file);
 
-    try {
-      const response = await fetch('http://localhost:8000/data-profiling', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Error uploading file');
-      }
-
-      const result: DataQualityReport = await response.json();
-      setReport(result);
-      setError(null);
-    } catch (err : any) {
-      setError(err.message);
-    }
+    const response = await fetch('http://localhost:8000/data-profiling', {
+      method: 'POST',
+      body: formData,
+    });
+    const result = await response.json().then((data) => data);
+    console.log(result);
+    setReport(JSON.parse(result));
   };
 
   return (
     <div>
-      <h1>CSV Data Profiling</h1>
-      <input type="file" accept=".csv" onChange={handleFileUpload} />
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      <h1>Data Profiling</h1>
+      <input type="file" onChange={handleFileChange} />
+      <button onClick={handleUpload}>Upload and Analyze</button>
       {report && (
         <div>
           <h2>Data Types</h2>
-          <pre>{JSON.stringify(report.dataTypes, null, 2)}</pre>
+          <ul>
+            {Object.entries(report.dataTypes).map(([key, value]) => (
+              <li key={key}>
+                {key}: {value}
+              </li>
+            ))}
+          </ul>
 
           <h2>Descriptive Statistics</h2>
-          <pre>{JSON.stringify(report.descriptiveStatistics, null, 2)}</pre>
+          {Object.entries(report.descriptiveStatistics).map(([key, stats]) => (
+            <div key={key}>
+              <h3>{key}</h3>
+              <ul>
+                {Object.entries(stats).map(([statKey, statValue]) => (
+                  <li key={statKey}>
+                    {statKey}: {statValue}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
 
           <h2>Missing Values</h2>
-          <pre>{JSON.stringify(report.missingValues, null, 2)}</pre>
+          <ul>
+            {Object.entries(report.missingValues).map(([key, value]) => (
+              <li key={key}>
+                {key}: {value}
+              </li>
+            ))}
+          </ul>
 
           <h2>Duplicate Count</h2>
           <p>{report.duplicateCount}</p>
 
-          <h2>Numeric Distributions</h2>
-          {Object.entries(report.numericDistributions).map(([column, values]) => (
-            <div key={column}>
-              <h3>{column}</h3>
-              <Chart
-                type="bar"
-                data={{
-                  labels: values.map((_, index) => index.toString()),
-                  datasets: [
-                    {
-                      label: column,
-                      data: values,
-                      backgroundColor: 'rgba(75,192,192,0.4)',
-                      borderColor: 'rgba(75,192,192,1)',
-                      borderWidth: 1,
-                    },
-                  ],
-                }}
-              />
-            </div>
-          ))}
+
         </div>
       )}
     </div>
   );
 };
 
-export default Home;
+export default DataProfiling;
