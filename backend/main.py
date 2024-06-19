@@ -44,6 +44,7 @@ def generate_report(df):
         "descriptiveStatistics": {},
         "missingValues": {},
         "duplicateCount": 0,
+        
 
     }
 
