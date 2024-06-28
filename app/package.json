@@ -35,6 +35,7 @@
     "react-csv": "^2.2.2",
     "react-dom": "^18",
     "react-table": "^7.8.0",
+    "recharts": "^2.12.7",
     "tailwind-merge": "^2.3.0",
     "tailwindcss-animate": "^1.0.7",
     "zustand": "^4.5.2"

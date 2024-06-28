@@ -1,25 +1,13 @@
 from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import json
 from io import StringIO
-
-
-class NpEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NpEncoder, self).default(obj)
-
 
 app = FastAPI()
 
+# CORS settings for local development, adjust as per your deployment needs
 origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
@@ -29,58 +17,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+# Function to calculate metrics
 def calculate_metrics(df):
     metrics = {}
 
-    # Calculate DQ Score as an average of other metrics
-    metrics["DQ Score"] = np.random.uniform(0, 100)  # Placeholder
+    # Uniqueness on id, phone, and email
+    unique_id = df['id'].nunique() / len(df) * 100
+    unique_phone = df['Phone_number'].nunique() / len(df) * 100
+    unique_email = df['email'].nunique() / len(df) * 100
+    metrics["Uniqueness"] = float(np.mean([unique_id, unique_phone, unique_email]))
 
-    # Timeliness: Assume we have a 'timestamp' column
-    if 'timestamp' in df.columns:
-        current_time = pd.Timestamp.now()
-        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-        df['timeliness'] = (current_time - df['timestamp']).dt.total_seconds()
-        metrics["Timeliness"] = 100 - df['timeliness'].mean() / \
-            df['timeliness'].max() * 100
-    else:
-        metrics["Timeliness"] = np.random.uniform(0, 100)  # Placeholder
+    # Completeness on phone and email
+    completeness_phone = df['Phone_number'].notna().mean() * 100
+    completeness_email = df['email'].notna().mean() * 100
+    metrics["Completeness"] = float(np.mean([completeness_phone, completeness_email]))
 
-    # Validity: Example of valid ranges/values for a column
-    if 'age' in df.columns:
-        valid_ages = df['age'].between(0, 120).mean() * 100
-        metrics["Validity"] = valid_ages
-    else:
-        metrics["Validity"] = np.random.uniform(0, 100)  # Placeholder
+    # Validity and timeliness on date of birth
+    current_time = pd.Timestamp.now()
+    df['Date_of_birth'] = pd.to_datetime(df['Date_of_birth'], errors='coerce', format='%d/%m/%Y')
+    valid_dob = df['Date_of_birth'].notna().mean() * 100
+    metrics["Validity"] = float(valid_dob)
 
-    # Accuracy: Placeholder, needs actual implementation
-    metrics["Accuracy"] = np.random.uniform(0, 100)  # Placeholder
+    # Timeliness: Example using Date_of_birth, consider younger age as more timely
+    age = (current_time - df['Date_of_birth']).dt.total_seconds() / (60 * 60 * 24 * 365)
+    max_age = age.max()
+    metrics["Timeliness"] = float((100 - age.mean() / max_age * 100) if max_age > 0 else 100)
 
-    # Consistency: Placeholder, needs actual implementation
-    metrics["Consistency"] = np.random.uniform(0, 100)  # Placeholder
+    # Coherence on state and num_state
+    df['num_state'] = df['num_state'].astype(str)
+    df['state'] = df['state'].astype(str)
+    state_coherence = (df['num_state'] == df['state']).mean() * 100
+    metrics["Coherence"] = float(state_coherence)
 
-    # Uniqueness: Example for uniqueness check
-    unique_counts = df.nunique() / len(df) * 100
-    metrics["Uniqueness"] = unique_counts.mean()
+    # DQ Score as an average of other metrics
+    metrics["DQ Score"] = float(np.mean(list(metrics.values())))
 
-    return metrics
+    # Processed and failed rows
+    processed_rows = int(len(df))
+    failed_rows = int(df.isna().any(axis=1).sum())
 
+    return metrics, processed_rows, failed_rows
 
+# FastAPI endpoint to upload CSV and calculate metrics
 @app.post("/upload-csv", response_model=dict)
 async def upload_csv(file: UploadFile = File(...)):
     contents = await file.read()
     df = pd.read_csv(StringIO(contents.decode('utf-8')))
 
-    metrics = calculate_metrics(df)
+    metrics, processed_rows, failed_rows = calculate_metrics(df)
 
-    data = []
-    for key, value in metrics.items():
-        data.append({
-            "id": key,
-            "data": [{"x": key, "y": value}]
-        })
+    # Prepare data for CircularProgressbar
+    data_progressbar = [{"id": key, "value": value} for key, value in metrics.items()]
 
-    return {"metrics": data}  # Wrap the list in a dictionary
+    # Prepare data for ResponsiveBar with named rules
+    data_chart = [{"id": f"Rule {idx + 1}", "data": [{"x": f"Rule {idx + 1}", "y": value}] } for idx, (key, value) in enumerate(metrics.items())]
+
+    return {
+        "metrics": data_progressbar,  # For CircularProgressbar
+        "chart_data": data_chart,  # For ResponsiveBar
+        "processed_rows": processed_rows,
+        "failed_rows": failed_rows
+    }
 
 if __name__ == "__main__":
     import uvicorn

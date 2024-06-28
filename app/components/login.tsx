@@ -14,7 +14,7 @@ export function Login() {
   const { username, isLoggedIn, login, logout } = useLoginStore();
 
   return (
-    <div className="flex h-screen w-full bg-url('hero.jpg') bg-cover bg-center">
+    <div className="flex h-screen w-full bg-gray-800 bg-cover bg-center">
       <div className="m-auto w-96 p-6 bg-white bg-opacity-25 rounded-lg shadow-lg border border-radius-8xl backdrop-filter backdrop-blur-lg">
         <div className="flex items-center justify-between mb-6 ">
           <h1 className="text-xl font-bold text-gray-100">Login</h1>
