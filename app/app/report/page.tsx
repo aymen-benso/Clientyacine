@@ -27,11 +27,17 @@ interface ReportData {
   processed_rows: number;
   failed_rows: number;
   reportRows: ReportDataRow[];
+  missingValues: { [key: string]: number };
+  duplicateEntries: number;
+  invalidEmails: number;
+  invalidDates: number;
+  incorrectWilayaNumbers: number;
 }
 
 const FileUpload: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = event.target.files?.[0];
@@ -47,8 +53,14 @@ const FileUpload: React.FC = () => {
     reader.onload = async (event) => {
       const csvData = event.target?.result;
       if (typeof csvData === "string") {
-        const reportData = await processCSVData(csvData);
-        setReportData(reportData);
+        try {
+          const reportData = await processCSVData(csvData);
+          setReportData(reportData);
+          setError(null);
+        } catch (err) {
+          console.error("Error processing CSV:", err);
+          setError("An error occurred while processing the CSV file.");
+        }
       }
     };
     reader.readAsText(file);
@@ -60,6 +72,11 @@ const FileUpload: React.FC = () => {
     const reportRows: ReportDataRow[] = [];
     let processedRows = 0;
     let failedRows = 0;
+    let missingValues: { [key: string]: number } = {};
+    let duplicateEntries = 0;
+    let invalidEmails = 0;
+    let invalidDates = 0;
+    let incorrectWilayaNumbers = 0;
 
     await new Promise<void>((resolve, reject) => {
       stream
@@ -92,6 +109,32 @@ const FileUpload: React.FC = () => {
             processedRows++;
           } else {
             failedRows++;
+            duplicateEntries++;
+          }
+
+          // Update data quality metrics
+          Object.keys(formattedRow).forEach((key) => {
+            if (!formattedRow[key as keyof ReportDataRow]) {
+              missingValues[key] = (missingValues[key] || 0) + 1;
+            }
+          });
+
+          if (!isValidEmail(formattedRow.email)) {
+            invalidEmails++;
+          }
+
+          if (!isValidDate(formattedRow.Date_of_birth)) {
+            invalidDates++;
+          }
+
+          if (
+            (formattedRow.state === "Alger" &&
+              formattedRow.num_state !== "16") ||
+            (formattedRow.state === "Blida" &&
+              formattedRow.num_state !== "09") ||
+            (formattedRow.state === "Adrar" && formattedRow.num_state !== "01")
+          ) {
+            incorrectWilayaNumbers++;
           }
         })
         .on("error", (err: any) => {
@@ -108,6 +151,11 @@ const FileUpload: React.FC = () => {
       processed_rows: processedRows,
       failed_rows: failedRows,
       reportRows,
+      missingValues,
+      duplicateEntries,
+      invalidEmails,
+      invalidDates,
+      incorrectWilayaNumbers,
     };
   };
 
@@ -115,12 +163,11 @@ const FileUpload: React.FC = () => {
     const issues: string[] = [];
 
     // Check for missing values
-    if (!row.Phone_number) {
-      issues.push("Missing Phone_number.");
-    }
-    if (!row.num_state) {
-      issues.push("Missing num_state.");
-    }
+    Object.keys(row).forEach((key) => {
+      if (!row[key as keyof ReportDataRow]) {
+        issues.push(`Missing ${key}.`);
+      }
+    });
 
     // Check for incorrect wilaya number
     if (row.state === "Alger" && row.num_state !== "16") {
@@ -131,7 +178,28 @@ const FileUpload: React.FC = () => {
       issues.push("Incorrect wilaya number for Adrar.");
     }
 
+    // Check for invalid email format
+    if (!isValidEmail(row.email)) {
+      issues.push("Invalid email format.");
+    }
+
+    // Check for invalid date format
+    if (!isValidDate(row.Date_of_birth)) {
+      issues.push("Invalid date format.");
+    }
+
     return issues.join(" ");
+  };
+
+  const isValidEmail = (email: string): boolean => {
+    // Add email validation logic here
+    return /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(email);
+  };
+
+  const isValidDate = (dateString: string): boolean => {
+    // Add date validation logic here
+    const dateRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    return dateRegex.test(dateString);
   };
 
   const handleDownloadCSV = () => {
@@ -211,6 +279,12 @@ const FileUpload: React.FC = () => {
           Upload CSV File
         </button>
 
+        {error && (
+          <div className="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+            {error}
+          </div>
+        )}
+
         {reportData && (
           <div className="mt-6">
             <h3 className="text-2xl font-semibold text-gray-800 mb-4">
@@ -242,6 +316,22 @@ const FileUpload: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            <div className="mt-4">
+              <h4 className="text-xl font-semibold text-gray-800 mb-2">
+                Data Quality Metrics
+              </h4>
+              <ul>
+                <li>Processed Rows: {reportData.processed_rows}</li>
+                <li>Failed Rows: {reportData.failed_rows}</li>
+                <li>Duplicate Entries: {reportData.duplicateEntries}</li>
+                <li>Invalid Emails: {reportData.invalidEmails}</li>
+                <li>Invalid Dates: {reportData.invalidDates}</li>
+                <li>
+                  Incorrect Wilaya Numbers: {reportData.incorrectWilayaNumbers}
+                </li>
+              </ul>
             </div>
 
             <button
