@@ -5,7 +5,7 @@ import axios, { AxiosProgressEvent } from "axios";
 import { CircularProgressbar, buildStyles } from "react-circular-progressbar";
 import "react-circular-progressbar/dist/styles.css";
 import { ResponsiveBar } from "@nivo/bar";
-import { schemeCategory10 } from "d3-scale-chromatic"; // Importing color scheme
+import { schemeCategory10 } from "d3-scale-chromatic";
 
 const FileUploadWithRadialBar: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -14,11 +14,19 @@ const FileUploadWithRadialBar: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [processedRows, setProcessedRows] = useState<number>(0);
   const [failedRows, setFailedRows] = useState<number>(0);
+  const [thresholds, setThresholds] = useState<{ [key: string]: number }>({});
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       setFile(event.target.files[0]);
     }
+  };
+
+  const handleThresholdChange = (id: string, value: string) => {
+    setThresholds((prev) => ({
+      ...prev,
+      [id]: parseFloat(value),
+    }));
   };
 
   const handleFileUpload = async () => {
@@ -47,16 +55,14 @@ const FileUploadWithRadialBar: React.FC = () => {
         },
       });
 
-      console.log("data : ", response.data); // Debugging: Log the response data
-
       setMetrics(response.data.metrics);
       setChartData(response.data.chart_data);
       setProcessedRows(response.data.processed_rows);
       setFailedRows(response.data.failed_rows);
-      setUploadProgress(0); // Reset progress after successful upload
+      setUploadProgress(0);
     } catch (error) {
       console.error("Error uploading file:", error);
-      setUploadProgress(0); // Reset progress on error
+      setUploadProgress(0);
     }
   };
 
@@ -83,7 +89,7 @@ const FileUploadWithRadialBar: React.FC = () => {
       </div>
 
       {(metrics.length > 0 || chartData.length > 0) && (
-        <div className="w-full rounded-lg  max-w-screen-2xl bg-[#384860] p-8 shadow-md max-w-screen-lg mt-2 ml-8">
+        <div className="w-full rounded-lg max-w-screen-2xl bg-[#384860] p-8 shadow-md max-w-screen-lg mt-2 ml-8">
           <div>
             <div style={{ marginBottom: "50px" }}>
               <h3 className="bg-gray-100 font-sans font-bold text-center">
@@ -109,7 +115,7 @@ const FileUploadWithRadialBar: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex align-itemsSpacing bg-gray-100 w-full rounded-lg ">
+            <div className="flex align-itemsSpacing bg-gray-100 w-full rounded-lg">
               {metrics.map((entry) => (
                 <div
                   key={entry.id}
@@ -117,25 +123,34 @@ const FileUploadWithRadialBar: React.FC = () => {
                 >
                   <h4
                     className={`
-                                inline-block
-                                px-2
-                                py-1
-                                rounded
-                                text-center
-                                font-medium
-                                pd-4
-                                text-sm
-                                my-8
-                  ${
-                    entry.value < 50
-                      ? "bg-red-500 text-white"
-                      : "bg-green-500 text-white"
-                  }
-                `}
+                      inline-block
+                      px-2
+                      py-1
+                      rounded
+                      text-center
+                      font-medium
+                      pd-4
+                      text-sm
+                      my-8
+                      ${
+                        entry.value < (thresholds[entry.id] ?? 50)
+                          ? "bg-red-500 text-white"
+                          : "bg-green-500 text-white"
+                      }
+                    `}
                   >
                     {entry.id}
                   </h4>
                   <br />
+                  <input
+                    type="number"
+                    className="block w-full text-center mb-2"
+                    placeholder="Set threshold"
+                    value={thresholds[entry.id] ?? ""}
+                    onChange={(e) =>
+                      handleThresholdChange(entry.id, e.target.value)
+                    }
+                  />
                   <CircularProgressbar
                     value={entry.value}
                     text={`${entry.value.toFixed(2)}%`}
@@ -144,7 +159,7 @@ const FileUploadWithRadialBar: React.FC = () => {
                       strokeLinecap: "butt",
                       textSize: "16px",
                       pathTransitionDuration: 0.5,
-                      pathColor: `rgba(62, 152, 199, ${entry.value / 100})`, // Use entry.value for pathColor
+                      pathColor: `rgba(62, 152, 199, ${entry.value / 100})`,
                       textColor: "blue",
                       trailColor: "#d6d6d6",
                       backgroundColor: "#3e98c7",
