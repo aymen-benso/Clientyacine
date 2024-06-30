@@ -11,10 +11,10 @@ export function Sidebar() {
   return (
     <>
       <button
-        className="fixed top-2 left-2 z-20 bg-gray-800 text-white p-1 rounded-md"
+        className="fixed top-2 left-2 z-20 bg-gray-800 text-white p-2 rounded-md"
         onClick={toggleSidebar}
       >
-        {isOpen ? "x" : "+"}
+        {isOpen ? "X" : "=="}
       </button>
       {isOpen && (
         <div className="bg-white dark:bg-gray-900 w-64 h-full fixed top-0 left-0 shadow-lg dark:text-gray-50 z-10">

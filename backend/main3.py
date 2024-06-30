@@ -1,20 +1,16 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 import pandas as pd
 import numpy as np
-import os
-import shutil
 from fastapi.middleware.cors import CORSMiddleware
-import json
 from io import StringIO
 import tempfile
+import json
 
 app = FastAPI()
 
 # Set up CORS
-origins = [
-    "*",  # Replace with your actual frontend origin
-]
+origins = ["*"]  # Replace with your actual frontend origin
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,93 +32,83 @@ class NpEncoder(json.JSONEncoder):
         return super(NpEncoder, self).default(obj)
 
 
-def generate_report(df):
-    report = {
-        "dataTypes": {},
-        "columnInfo": {},
-        "descriptiveStatistics": {},
-        "missingValues": {},
-        "duplicateCount": 0,
-    }
-
-    columns = df.columns
-
-    # Data Types
-    for column in columns:
-        report["dataTypes"][column] = str(df[column].dtype)
-
-    # Column Information
-    for column in columns:
-        column_info = {
-            "type": str(df[column].dtype),
-            "count": df[column].count(),
-            "mean": df[column].mean() if np.issubdtype(df[column].dtype, np.number) else None,
-            "std": df[column].std() if np.issubdtype(df[column].dtype, np.number) else None,
-            "min": df[column].min() if np.issubdtype(df[column].dtype, np.number) else None,
-            "25%": df[column].quantile(0.25) if np.issubdtype(df[column].dtype, np.number) else None,
-            "50%": df[column].quantile(0.5) if np.issubdtype(df[column].dtype, np.number) else None,
-            "75%": df[column].quantile(0.75) if np.issubdtype(df[column].dtype, np.number) else None,
-            "max": df[column].max() if np.issubdtype(df[column].dtype, np.number) else None,
-            "unique": df[column].nunique(),
-            "top": df[column].mode().values[0] if not df[column].empty and df[column].dtype.name != 'category' else None,
-            "freq": df[column].value_counts().values[0] if not df[column].empty and df[column].dtype.name != 'category' else None,
-            "null_count": df[column].isnull().sum(),
-        }
-        report["columnInfo"][column] = column_info
-
-    # Descriptive Statistics and Numeric Distributions
-    numeric_columns = df.select_dtypes(include=[np.number]).columns
-    for column in numeric_columns:
-        report["descriptiveStatistics"][column] = df[column].describe().to_dict()
-
-    # Missing Values
-    report["missingValues"] = df.isnull().sum().to_dict()
-
-    # Duplicates
-    report["duplicateCount"] = df.duplicated().sum()
-
-    return report
-
-
 @app.post("/upload-csv", response_model=str)
 async def upload_csv(file: UploadFile = File(...)):
     try:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            shutil.copyfileobj(file.file, tmp)
-            tmp.close()
-            filename = tmp.name
-        df = pd.read_csv(filename)
-        report = generate_report(df)
-        return JSONResponse(content=json.dumps(report, cls=NpEncoder), status_code=200)
+        content = await file.read()
+        df = pd.read_csv(StringIO(content.decode("utf-8")))
+        csv_data = df.to_json(orient='records')
+        return JSONResponse(content=csv_data, status_code=200)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        os.remove(filename)
 
 
 @app.post("/fix")
-async def fix_csv(file: UploadFile = File(...)):
+async def fix_csv(
+    file: UploadFile = File(...),
+    drop_duplicates: bool = False,
+    handle_missing: str = "drop",
+):
     try:
-        # Read the uploaded CSV file
         content = await file.read()
         df = pd.read_csv(StringIO(content.decode("utf-8")))
 
-        # Perform fixing operations: drop rows with any NaN values and remove duplicates
-        fixed_df = df.dropna().drop_duplicates()
+        # Get faulty rows
+        faulty_rows = df[df.isnull().any(axis=1) | df.duplicated()]
 
-        # Convert fixed dataframe back to CSV
-        output = StringIO()
-        fixed_df.to_csv(output, index=False)
-        output.seek(0)
+        if drop_duplicates:
+            df = df.drop_duplicates()
 
-        # Create a streaming response with the fixed CSV
-        response = StreamingResponse(
-            iter([output.getvalue()]), media_type="text/csv")
-        response.headers["Content-Disposition"] = "attachment; filename=fixed_report.csv"
-        return response
+        if handle_missing == "drop":
+            df = df.dropna()
+        elif handle_missing == "fill_mean":
+            df = df.fillna(df.mean())
+        elif handle_missing == "fill_median":
+            df = df.fillna(df.median())
+
+        # Convert DataFrames to CSV strings
+        fixed_csv = df.to_csv(index=False)
+        faulty_rows_csv = faulty_rows.to_csv(index=False)
+
+        # Return both CSV files as responses
+        return {
+            "fixed_csv": fixed_csv,
+            "faulty_rows_csv": faulty_rows_csv,
+        }
     except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Error processing file: {e}")
+        raise HTTPException(status_code=400, detail=f"Error processing file: {e}")
+
+
+@app.get("/download-fixed-csv")
+async def download_fixed_csv():
+    try:
+        # Generate a temporary directory to save the file
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_file_path = os.path.join(temp_dir, "fixed.csv")
+            # Write the fixed CSV content to the temporary file
+            with open(temp_file_path, "w") as f:
+                f.write(fixed_csv)  # Use the fixed_csv variable from /fix endpoint
+
+            # Return the file as a response
+            return FileResponse(temp_file_path, filename="fixed.csv")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating download: {e}")
+
+
+@app.get("/download-faulty-rows-csv")
+async def download_faulty_rows_csv():
+    try:
+        # Generate a temporary directory to save the file
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_file_path = os.path.join(temp_dir, "faulty_rows.csv")
+            # Write the faulty rows CSV content to the temporary file
+            with open(temp_file_path, "w") as f:
+                f.write(faulty_rows_csv)  # Use the faulty_rows_csv variable from /fix endpoint
+
+            # Return the file as a response
+            return FileResponse(temp_file_path, filename="faulty_rows.csv")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating download: {e}")
 
 
 if __name__ == "__main__":

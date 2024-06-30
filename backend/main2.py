@@ -17,6 +17,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Define a dictionary mapping state abbreviations to numbers
+state_number_dict = {
+    "Alger": "16.0",
+    "Blida": "9.0",
+    "Adrar": "1.0",
+    # Add more mappings as needed
+}
+
 # Function to calculate metrics
 def calculate_metrics(df):
     metrics = {}
@@ -38,24 +46,45 @@ def calculate_metrics(df):
     valid_dob = df['Date_of_birth'].notna().mean() * 100
     metrics["Validity"] = float(valid_dob)
 
-    # Timeliness: Example using Date_of_birth, consider younger age as more timely
     age = (current_time - df['Date_of_birth']).dt.total_seconds() / (60 * 60 * 24 * 365)
     max_age = age.max()
-    metrics["Timeliness"] = float((100 - age.mean() / max_age * 100) if max_age > 0 else 100)
 
-    # Coherence on state and num_state
+    # Calculate timeliness for each date
+    timeliness = (1 - age.clip(upper=1) / age.max()) * 100
+
+    # Ensure timeliness is between 0 and 100
+    timeliness = timeliness.clip(lower=0, upper=100)
+
+    # Return the average timeliness (weighted by number of entries)
+    metrics["Timeliness"] = timeliness.mean() if max_age > 0 else 100
+    
+    # Coherence on state and num_state based on dictionary using direct comparison
     df['num_state'] = df['num_state'].astype(str)
     df['state'] = df['state'].astype(str)
-    state_coherence = (df['num_state'] == df['state']).mean() * 100
+    # Calculate coherence
+    matched = 0
+    total = len(df)
+    for index, row in df.iterrows():
+        state = row['state']
+        num_state = row['num_state']
+        print(num_state)
+        print(state_number_dict[state])
+        if state_number_dict[state] == num_state:
+            matched = matched + 1
+        
+    print(matched)
+    state_coherence = (matched / total) * 100
+    print(state_coherence)
     metrics["Coherence"] = float(state_coherence)
+
 
     # DQ Score as an average of other metrics
     metrics["DQ Score"] = float(np.mean(list(metrics.values())))
 
     # Processed and failed rows
-    processed_rows = int(len(df))
+    
     failed_rows = int(df.isna().any(axis=1).sum())
-
+    processed_rows = int(len(df)) - failed_rows
     return metrics, processed_rows, failed_rows
 
 # FastAPI endpoint to upload CSV and calculate metrics
@@ -75,7 +104,7 @@ async def upload_csv(file: UploadFile = File(...)):
     return {
         "metrics": data_progressbar,  # For CircularProgressbar
         "chart_data": data_chart,  # For ResponsiveBar
-        "processed_rows": processed_rows,
+        "processed_rows": processed_rows ,
         "failed_rows": failed_rows
     }
 
